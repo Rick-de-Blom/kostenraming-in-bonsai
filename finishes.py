@@ -1,0 +1,53 @@
+import os
+
+# Basispad
+basepath = "C:/Users/rickd/3BM Dropbox/Rick de Blom/pc/Fotobibliotheek"
+
+# Gebruik dictionary comprehension om het basispad te combineren met de bestandsnamen
+finishes = {
+    "Helling": os.path.join(basepath, "Helling.jpg"),
+    "Bouwplaats": os.path.join(basepath, "Bouwplaats.jpg"),
+    "Afval scheiding": os.path.join(basepath, "Afval scheiding.jpg"),
+    "Stroom": os.path.join(basepath, "Stroom.jpg"),
+    "Rc waarden (minimaal)": os.path.join(basepath, "Rc waarden (minimaal).jpg"),
+    "Bouwmethode": os.path.join(basepath, "Bouwmethode.jpg"),
+    "Virtual Reality": os.path.join(basepath, "Virtual Reality.jpg"),
+    "Klantbegeleiding": os.path.join(basepath, "Klantbegeleiding.jpg"),
+    "Werktekeningen, 3D BIM-model en vergunning aanvraag": os.path.join(basepath, "Werktekeningen, 3D BIM-model en vergunning aanvraag.jpg"),
+    "Constructieberekening": os.path.join(basepath, "Constructieberekening.jpg"),
+    "Gewapend_beton_betoncasco": os.path.join(basepath, "Gewapend_beton_betoncasco.jpg"),
+    "Frake_gevelafwerking": os.path.join(basepath, "Frake_gevelafwerking.jpg"),
+    "CLT_D_90_mm": os.path.join(basepath, "CLT_D_90_mm.jpg"),
+    "HSB_38x89_mm": os.path.join(basepath, "HSB_38x89_mm.jpg"),
+    "HSB_38x121_mm": os.path.join(basepath, "HSB_38x121_mm.jpg"),
+    "HSB_38x184_mm": os.path.join(basepath, "HSB_38x184_mm.jpg"),
+    "HSB_44x70_mm": os.path.join(basepath, "HSB_44x70_mm.jpg"),
+    "HSB_44x70_mm_dragend": os.path.join(basepath, "HSB_44x70_mm_dragend.jpg"),
+    "Afbouwtimmerwerk": os.path.join(basepath, "Afbouwtimmerwerk.jpg"),
+    "Vloerafwerking": os.path.join(basepath, "Vloerafwerking.jpg"),
+    "BENG berekening": os.path.join(basepath, "BENG berekening.jpg"), 
+    "Qv10 meting": os.path.join(basepath, "Qv10 meting 1.jpg"),
+    "Smart Home": os.path.join(basepath, "Smart Home.jpg"),
+    "iPad": os.path.join(basepath, "iPad.jpg"),
+    "Grohe waterdetector": os.path.join(basepath, "Grohe waterdetector.jpg"),
+    "Meterkast": os.path.join(basepath, "Meterkast.jpg"),
+    "Elektra": os.path.join(basepath, "Elektra.jpg"),
+    "Zonnepanelen ": os.path.join(basepath, "Zonnepanelen.jpg"),
+    "Rookmelder": os.path.join(basepath, "Rookmelder.jpg"),
+    "Installatie concept": os.path.join(basepath, "Installatie concept.jpg"),
+    "Elektrische boiler": os.path.join(basepath, "Elektrische boiler.jpg"),
+    "Badkamer": os.path.join(basepath, "Badkamer.jpg"),
+    "Toilet": os.path.join(basepath, "Toilet.jpg"),
+    "Koud water": os.path.join(basepath, "Koud water.jpg"),
+    "Warm water": os.path.join(basepath, "Warm water.jpg"),
+    "Riolering": os.path.join(basepath, "Riolering.jpg"),
+    "Rioolpomp": os.path.join(basepath, "Rioolpomp.jpg"),
+    "Anti verkleuring CLT": os.path.join(basepath, "Anti verkleuring CLT.jpg"),
+    "Afmeerbeugels": os.path.join(basepath, "Afmeerbeugels.jpg"),
+    "Extra zonnepanelen + inverter": os.path.join(basepath, "Extra zonnepanelen + inverter.jpg"),
+    "Transport": os.path.join(basepath, "Transport.jpg"),
+    "Buitenkraan": os.path.join(basepath, "Buitenkraan.jpg"),
+    "Meerpalen": os.path.join(basepath, "Meerpalen.jpg"),
+    "Nutsvoorzieningen": os.path.join(basepath, "Nutsvoorzieningen.jpg"),
+    "Bouwvergunning": os.path.join(basepath, "Bouwvergunning.jpg")
+}

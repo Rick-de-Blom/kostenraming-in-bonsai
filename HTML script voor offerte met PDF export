@@ -1,0 +1,492 @@
+import ifcopenshell
+import pdfkit
+import base64
+import os
+import sys
+
+# Basispad
+basepath = "C:/Users/rickd/3BM Dropbox/Rick de Blom/pc"
+
+# IFC-bestandspad
+ifc_file_path = os.path.join(basepath, "Begroting_Gouda.ifc")
+# Laad het IFC-bestand
+ifc_file = ifcopenshell.open(ifc_file_path)
+
+# Voeg paden voor geïmporteerde modules toe
+code_path = os.path.join(basepath, "Code")
+
+image_cache = {}
+
+def encode_image_to_base64(image_path):
+    """Encodeer afbeelding naar base64 voor HTML."""
+    if image_path in image_cache:
+        return image_cache[image_path]
+    
+    try:
+        with open(image_path, "rb") as image_file:
+            encoded = base64.b64encode(image_file.read()).decode('utf-8')
+            image_cache[image_path] = encoded  # Sla het gecodeerde resultaat op
+            return encoded
+    except FileNotFoundError:
+        return None  # Als afbeelding niet bestaat, retourneer None
+
+def generate_html_content(element_name, layer_set_description, layer_descriptions, image_path):
+    """Genereer de HTML-content voor een element met beschrijving en afbeelding."""
+    base64_image = encode_image_to_base64(image_path) if image_path else None
+
+    # Voor de beschrijving van de MaterialLayerSet zonder bullet en met nieuwe regels na punten
+    if layer_set_description:
+        layer_set_desc_html = "<div>" + "</div><div>".join([desc.strip() for desc in layer_set_description.split(".") if desc.strip()]) + "</div><br/>"
+    else:
+        layer_set_desc_html = ""
+
+    # Voor de beschrijvingen van de individuele lagen
+    description_list = "".join([f"<li>{sub_desc.strip()}</li>" 
+                                 for desc in layer_descriptions 
+                                 for sub_desc in desc.split(".") if sub_desc.strip()])
+
+    return f"""
+        <tr>
+            <td style='padding-left: 10px; padding-right: 10px; vertical-align: top;'>{element_name}</td>
+            <td style='vertical-align: top;'>
+                {layer_set_desc_html}
+                <ul style='padding-left: 15px; margin-right: 10px;'>{description_list}</ul>
+            </td>
+            <td style='padding: 10px; text-align: center;'>
+                {f"<img src='data:image/jpeg;base64,{base64_image}' alt='{element_name}' width='150'/>" if base64_image else "Afbeelding niet beschikbaar"}
+            </td>
+        </tr>
+    """
+
+def get_property_set_values(ifc_file, property_set_name):
+    """Haal de eigenschapswaarden uit een PropertySet."""
+    property_values = []
+    for entity in ifc_file.by_type('IfcPropertySet'):
+        if entity.Name == property_set_name:
+            for prop in entity.HasProperties:
+                property_name = prop.Name
+                property_value = prop.NominalValue.wrappedValue if hasattr(prop.NominalValue, 'wrappedValue') else None
+                if property_value:
+                    property_values.append((property_name, property_value))  
+    return property_values
+
+def generate_section_table(property_set_name, ifc_file, finishes):
+    """Genereer HTML-tabel voor een bepaalde PropertySet."""
+    property_values = get_property_set_values(ifc_file, property_set_name)
+    table_content = ""
+    
+    for property_name, property_value in property_values:
+        beschrijvingen = [beschrijving.strip() for beschrijving in str(property_value).split(".") if beschrijving.strip()]
+        beschrijving_html = "<ul>" + "".join(f"<li>{beschrijving}</li>" for beschrijving in beschrijvingen) + "</ul>"
+
+        image_path = finishes.get(property_name)
+        base64_image = encode_image_to_base64(image_path) if image_path else None
+        afbeelding_html = f"<img src='data:image/jpeg;base64,{base64_image}' width='150'/>" if base64_image else ""
+
+        table_content += f"""
+            <tr>
+                <td>{property_name}</td>
+                <td>{beschrijving_html}</td>
+                <td>{afbeelding_html}</td>
+            </tr>
+        """
+    return table_content
+
+# Definieer de afwerkingen en hun bijbehorende afbeeldingen
+sys.path.append(code_path)
+from finishes import finishes
+for element, path in finishes.items():
+    print(f"Element: {element}, Path: {path}")
+
+# Klantgegevens en offerte details
+klant_info = {
+    'naam': 'Naam klant',
+    'adres': 'Adres klant',
+    'postcode_plaats': 'Postcode+Plaatsnaam'
+}
+offerte_nummer = "12345"
+datum = "2024-10-23"
+
+# Volgorde van de beschrijvingen
+sort_order = [
+    "Betonbak",
+    "Voorzetwand betonbak",
+    "Vloer",
+    "Buitenwand",
+    "Binnenwand",
+    "Dak"
+]
+
+# Start de HTML-output met de klant- en offerte-informatie en algemene structuur
+html_output = f"""
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Offerte voor Waterwoning</title>
+    <style>
+        body {{
+            font-family: 'Univia Pro', sans-serif; /* Pas lettertype aan */
+            font-size: 11pt; /* Hoofdlettergrootte */
+        }}
+        h1, h2 {{
+            font-size: 14pt; /* Koppen lettergrootte */
+        }}
+        table {{
+            width: 100%; /* Zorg ervoor dat de tabel de volledige breedte van de pagina inneemt */
+            border-collapse: collapse; /* Verwijder dubbele lijnen */
+        }}
+        th, td {{
+            padding: 10px; /* Voegt padding toe aan cellen */
+            border: 1px solid black; /* Rand rond cellen */
+            vertical-align: top; /* Zorgt ervoor dat de inhoud bovenaan uitlijnt */
+        }}
+        td img {{
+            display: block; /* Behandel de afbeelding als een block-element */
+            margin: auto; /* Centreer zowel horizontaal als verticaal */
+            max-width: 100%; /* Behoud de proportie binnen de cel */
+            max-height: 100%; /* Behoud de proportie binnen de cel */
+        }}
+        th:nth-child(1), td:nth-child(1) {{
+            width: 25%; /* Vaste breedte voor 'Element Naam' kolom */
+        }}
+        th:nth-child(2), td:nth-child(2) {{
+            width: 50%; /* Vaste breedte voor 'Beschrijving' kolom */
+        }}
+        th:nth-child(3), td:nth-child(3) {{
+            width: 25%; /* Vaste breedte voor 'Afbeelding' kolom */
+            horizontal-align: middle; /* Centreer de afbeelding in de kolom */
+            vertical-align: middle; /* Centreer de afbeelding in de kolom */
+        }}
+        th {{
+            background-color: #f2f2f2; /* Kleur van de tabelkoppen */
+            padding: 10px; /* Padding voor koppen */
+            border: 1px solid black; /* Rand van koppen */
+        }}
+        ul {{
+            padding-left: 15px; /* Consistente padding voor alle opsommingen */
+            margin: 0; /* Verwijder marge van de ul */
+        }}
+        li {{
+            margin-bottom: 5px; /* Voeg wat ruimte toe tussen li-elementen */
+        }}
+    </style>
+</head>
+<body>
+    <h1>Offerte voor Waterwoning</h1>
+    
+    <!-- Klantgegevens -->
+    <p>Naam: {klant_info['naam']}<br/>
+    Adres: {klant_info['adres']}<br/>
+    Postcode en plaats: {klant_info['postcode_plaats']}</p>
+
+    <!-- Offerte informatie -->
+    <p>Betreft: Offerte waterwoning<br/>
+    Datum: {datum}<br/>
+    Offerte nummer: {offerte_nummer}</p>
+
+    <h2>Technische specificaties</h2>
+    <p>De constructie bestaat uit CLT. De gevelbekleding bestaat uit hout. Aluminium kozijnen, bitumen dakbedekking en EPS-isolatie zijn onderdeel van het project.</p>
+"""
+
+# Voeg de secties toe
+html_output += "<h2>Bouwwerf voorzieningen</h2><table><tr><th>Element Naam</th><th>Beschrijving</th><th>Afbeelding</th></tr>"
+html_output += generate_section_table("Bouwwerf_voorzieningen", ifc_file, finishes)
+html_output += "</table>"
+
+html_output += "<h2>Algemeen</h2><table><tr><th>Element Naam</th><th>Beschrijving</th><th>Afbeelding</th></tr>"
+html_output += generate_section_table("Algemeen", ifc_file, finishes)
+html_output += "</table>"
+
+# Verkrijg de waarden van de eigenschappen uit de PropertySet
+property_set_name = "Ruwbouw"
+property_values = get_property_set_values(ifc_file, property_set_name)
+
+html_output += """
+    <!-- Tabel met ruwbouw -->
+    <h2>Ruwbouw</h2>
+    <table>
+        <tr>
+            <th>Element Naam</th>
+            <th>Beschrijving</th>
+            <th>Afbeelding</th>
+        </tr>
+"""
+
+# Voeg de gegevens van de eigenschappen toe aan de HTML-tabel
+for property_name, property_value in property_values:
+    # Dynamische beschrijving toevoegen als opsomming per zin na een punt
+    beschrijvingen = [beschrijving.strip() for beschrijving in str(property_value).split(".") if beschrijving.strip()]
+    beschrijving_html = "<ul>" + "".join(f"<li>{beschrijving}</li>" for beschrijving in beschrijvingen) + "</ul>"
+
+    # Zoek het afbeeldingspad in de finishes dictionary
+    image_path = finishes.get(property_name)
+    
+    # Controleer of de afbeelding bestaat in de finishes dictionary en codeer naar Base64
+    if image_path:
+        base64_image = encode_image_to_base64(image_path)
+        afbeelding_html = f"<img src='data:image/jpeg;base64,{base64_image}' width='150'/>"
+    else:
+        afbeelding_html = ""  # Laat leeg of voeg een standaardafbeelding toe als gewenst
+
+    # Voeg het item toe aan de HTML-tabel
+    html_output += f"""
+        <tr>
+            <td>{property_name}</td>
+            <td>{beschrijving_html}</td>
+            <td>{afbeelding_html}</td>
+        </tr>
+    """
+
+# Verzamel elementen in een lijst voor sortering
+rows = []
+elements = ifc_file.by_type("IfcTypeProduct")
+for element in elements:
+    # Vervang underscores in de elementnaam door spaties
+    element_name = element.Name.replace("_", " ")
+
+    # Haal de MaterialLayerSet op
+    material_layer_sets = element.HasAssociations
+    layer_set_description = None
+    layer_descriptions = []
+
+    for material_layer_set in material_layer_sets:
+        if material_layer_set.is_a("IfcRelAssociatesMaterial"):
+            material_layer_set = material_layer_set.RelatingMaterial
+            if material_layer_set.is_a("IfcMaterialLayerSet"):
+                # Voeg de beschrijving van de IfcMaterialLayerSet toe
+                if hasattr(material_layer_set, "Description") and material_layer_set.Description:
+                    layer_set_description = material_layer_set.Description
+
+                # Voeg de beschrijvingen van de lagen toe
+                for layer in material_layer_set.MaterialLayers:
+                    if hasattr(layer, "Description") and layer.Description:
+                        layer_descriptions.append(layer.Description)
+
+    # Controleer of de elementnaam overeenkomt met een van de finishes
+    for finish_name, image_path in finishes.items():
+        if finish_name in element.Name:
+            rows.append((element_name, layer_set_description, layer_descriptions, image_path))
+            break
+    else:
+        print(f"Element {element_name} wordt overgeslagen (niet gemodelleerd).")
+
+# Sorteer de verzamelde rijen op basis van de beschrijvingen
+def get_sort_index(row):
+    layer_set_desc = row[1] if row[1] else ""
+    layer_descs = " ".join(row[2]) if row[2] else ""
+    combined_description = layer_set_desc + " " + layer_descs
+    for desc in sort_order:
+        if desc in combined_description:
+            return sort_order.index(desc)
+    return len(sort_order)
+
+sorted_rows = sorted(rows, key=get_sort_index)
+
+# Genereer de HTML-output voor de gesorteerde rijen
+for row in sorted_rows:
+    element_name, layer_set_description, layer_descriptions, image_path = row
+    html_output += generate_html_content(element_name, layer_set_description, layer_descriptions, image_path)
+
+html_output += """
+    </table>
+</body>
+</html>
+"""
+
+html_output += "<h2>Afbouw</h2><table><tr><th>Element Naam</th><th>Beschrijving</th><th>Afbeelding</th></tr>"
+html_output += generate_section_table("Afbouw", ifc_file, finishes)
+html_output += "</table>"
+
+html_output += "<h2>Installaties</h2><table><tr><th>Element Naam</th><th>Beschrijving</th><th>Afbeelding</th></tr>"
+html_output += generate_section_table("Installaties", ifc_file, finishes)
+html_output += "</table>"
+
+# Verkrijg de waarden van de eigenschappen uit de PropertySet
+property_set_name = "Overzicht opgenomen stelposten incl. arbeid"
+property_values = get_property_set_values(ifc_file, property_set_name)
+
+# HTML-output voor de stelposten als tekstweergave
+html_output += """
+    <!-- Overzicht opgenomen stelposten incl. arbeid -->
+    <h2>Overzicht opgenomen stelposten incl. arbeid</h2>
+    <ul style='padding-left: 20px;'>
+"""
+
+# Voeg de gegevens van de eigenschappen toe aan de HTML-opsomming
+for property_name, property_value in property_values:
+    # Dynamische beschrijving toevoegen als opsomming per zin na een punt
+    beschrijvingen = [beschrijving.strip() for beschrijving in str(property_value).split(".") if beschrijving.strip()]
+    beschrijving_html = "".join(f"<li>{beschrijving}</li>" for beschrijving in beschrijvingen)
+
+    # Zoek het afbeeldingspad in de finishes dictionary
+    image_path = finishes.get(property_name)
+    
+    # Controleer of de afbeelding bestaat in de finishes dictionary en codeer naar Base64
+    if image_path:
+        base64_image = encode_image_to_base64(image_path)
+        afbeelding_html = f"<img src='data:image/jpeg;base64,{base64_image}' width='150'/>"
+    else:
+        afbeelding_html = ""  # Laat leeg of voeg een standaardafbeelding toe als gewenst
+
+    # Voeg de eigenschappen als opsomming toe aan de HTML met padding
+    html_output += f"""
+        <li style='padding-bottom: 1px;'>
+            {property_name}
+            <ul style='padding-left: 15px;'>
+                {beschrijving_html}
+            </ul>
+            {afbeelding_html}
+        </li>
+    """
+
+# Sluit de opsomming af
+html_output += "</ul>"
+
+html_output += """
+    </table>
+</body>
+</html>
+"""
+
+# HTML-output voor de totale bouwkosten als tekstweergave
+html_output += """
+    <!-- Totale bouwkosten -->
+    <h2>Totale bouwkosten</h2>
+    <ul style='padding-left: 20px;'>
+    </ul>
+"""
+
+html_output += """
+    </table>
+</body>
+</html>
+"""
+
+html_output += "<h2>Meerwerk (niet opgenomen in offerte). Prijzen zijn inclusief arbeid, opslagen en BTW.</h2><table><tr><th>Element Naam</th><th>Beschrijving</th><th>Afbeelding</th></tr>"
+html_output += generate_section_table("Meerwerk (niet opgenomen in offerte). Prijzen zijn inclusief arbeid, opslagen en BTW.", ifc_file, finishes)
+html_output += "</table>"
+
+html_output += "<h2>Te regelen door opdrachtgever</h2><table><tr><th>Element Naam</th><th>Beschrijving</th><th>Afbeelding</th></tr>"
+html_output += generate_section_table("Te regelen door opdrachtgever", ifc_file, finishes)
+html_output += "</table>"
+
+# HTML structuur voor de betalingstermijnen
+html_output += """
+    <!-- Betalingstermijnen -->
+    <h2>Betalingstermijnen</h2>
+    <ul style='padding-left: 20px;'>
+"""
+
+# Verwerk betalingstermijnen
+sys.path.append(code_path)
+from betalingstermijnen import betalingstermijnen
+
+# Als betalingstermijnen een lijst is, itereren we er over en voegen we <li>-elementen toe
+for element in betalingstermijnen:
+    html_output += f"<li>{element}</li>"
+
+html_output += """
+    </ul>
+"""
+
+html_output += """
+    </table>
+</body>
+</html>
+"""
+
+# HTML structuur voor de garanties
+html_output += """
+    <!-- Garanties -->
+    <h2>Garanties</h2>
+    <ul style='padding-left: 20px;'>
+"""
+
+# Verwerk betalingstermijnen
+sys.path.append(code_path)
+from garanties import garanties
+
+# Als garanties een lijst is, itereren we er over en voegen we <li>-elementen toe
+for element in garanties:
+    html_output += f"<li>{element}</li>"
+
+html_output += """
+    </ul>
+"""
+
+# HTML structuur voor de tekst
+html_output += """
+    <!-- Verzekering -->
+    <h2>Verzekering</h2>
+    <p>We hebben een doorlopende CAR-verzekering op alle onder handen zijnde werken afgesloten voor de werkzaamheden die onder ons beheer worden uitgevoerd.</p>
+    
+    <!-- Overige zaken -->
+    <h2>Overige zaken</h2>
+    <ul style='padding-left: 20px;'>
+        <li>Op deze offerte zijn de algemene voorwaarden van toepassing welke via <a href="https://domera.nl/wp-content/uploads/2021/11/Domera-algemene-voorwaarden.pdf" target="_blank">deze link</a> in te zien is en daarmee deel uitmaakt van deze aanbieding.</li>
+        <li>Op deze offerte is AVA 2013, herzien december 2014 van toepassing welke via <a href="https://domera.nl/wp-content/uploads/2023/04/ava-2013-herzien-december-2014.pdf" target="_blank">deze link</a> in te zien is en daarmee deel uitmaakt van deze aanbieding.</li>
+        <li>Meerwerk zal worden verrekend tegen een uurtarief van € 88,43 inclusief btw.</li>
+        <li>Niet opgenomen zijn niet omschreven werkzaamheden en/of leveringen.</li>
+        <li>Een stelpost is een post die bestaat uit materiaal en arbeid. Deze wordt na afloop van het onderdeel doorberekend.</li>
+        <li>5%-regeling (artikel 7:768 BW) is niet van toepassing op dit document.</li>
+    </ul>
+    
+    <!-- Reactie sectie -->
+    <div style="margin-bottom: 30px;">
+        <p>We zijn benieuwd naar jullie reactie!</p>
+        <p>Als er onduidelijkheden zijn, wilt u dan contact met mij opnemen?</p>
+        <p>Deze offerte is 30 dagen geldig vanaf datum gemaakte offerte. Start van de werkzaamheden in overleg.</p>
+        <p>Indien materiaalkosten en onderaannemingskosten meer dan 5% stijgen rekenen wij dit door, ook al is het aangenomen werk. Dit i.v.m. de onzekerheden in de markt met materiaalkosten en energiekosten.</p>
+        <p>Als u met de aanbieding akkoord gaat, verzoek ik u een exemplaar getekend te retourneren.</p>
+    </div>
+
+    <!-- Voor akkoord -->
+    <div style="margin-bottom: 30px;">
+        <p>Voor akkoord:</p>
+    </div>
+"""
+
+# HTML structuur voor de opdrachtgever, handtekeninglijn en Maarten/Marius
+html_output += f"""
+    <!-- Opdrachtgever sectie -->
+        <div style="text-align: left; width: 60%;">
+            <div style="border-bottom: 1px solid #000; margin-bottom: 5px;"></div>
+            <p>Opdrachtgever: {klant_info['naam']}</p>
+            <div style="height: 80px;"></div> <!-- Ruimte voor handtekening -->
+        </div>
+    
+    <!-- Maarten sectie -->
+        <div style="text-align: left; width: 60%;">
+            <div style="border-bottom: 1px solid #000; margin-bottom: 5px;"></div>
+            <p>Maarten Vroegindeweij</p>
+            <p>Bouwkundig Ingenieur</p>
+            <p><a href="mailto:maarten@domera.nl">maarten@domera.nl</a></p>
+            <p>06-43860542</p>
+        </div>
+
+    <!-- Marius sectie -->
+        <div style="text-align: left; width: 60%;">
+            <div style="border-bottom: 1px solid #000; margin-bottom: 5px;"></div>
+            <p>Marius Vroegindeweij</p>
+            <p>Aannemer</p>
+            <p><a href="mailto:marius@domera.nl">marius@domera.nl</a></p>
+            <p>06-51192577</p>
+        </div>
+    </div>
+"""
+
+# Sla de HTML-output op in een bestand
+html_path = os.path.join(basepath, "offerte.html")
+with open(html_path, "w", encoding='utf-8') as f:
+    f.write(html_output) 
+
+# Configuratie voor PDFKit
+config = pdfkit.configuration(wkhtmltopdf="C:/Program Files/wkhtmltopdf/bin/wkhtmltopdf.exe")
+
+# Probeer de PDF te genereren
+pdf_path = os.path.join(basepath, "offerte.pdf")
+try:
+    pdfkit.from_file(html_path, pdf_path, configuration=config)
+    print("PDF is gegenereerd:", pdf_path)
+except Exception as e:
+    print("Fout bij het genereren van de PDF:", str(e))

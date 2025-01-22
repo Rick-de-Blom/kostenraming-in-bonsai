@@ -1,0 +1,285 @@
+import os
+import ifcopenshell
+import pdfkit
+import locale
+import sys
+
+# Stel de locale in voor de Nederlandse weergave van getallen
+locale.setlocale(locale.LC_NUMERIC, 'nl_NL.UTF-8')
+
+# Basispad
+basepath = "C:/Users/rickd/3BM Dropbox/Rick de Blom/pc"
+
+# IFC-bestandspad
+ifc_file_path = os.path.join(basepath, "Begroting_Gouda.ifc")
+# Laad het IFC-bestand
+ifc_file = ifcopenshell.open(ifc_file_path)
+
+# Voeg paden voor geïmporteerde modules toe
+code_path = os.path.join(basepath, "Code")
+
+def extract_resource_time(ifc_file):
+    resource_times = ifc_file.by_type("IfcResourceTime")
+    labor_costs = []
+
+    for resource_time in resource_times:
+        schedule_work = getattr(resource_time, "ScheduleWork", None)
+        hourly_rate = 58.0  # EUR per uur
+
+        if schedule_work:
+            hours = float(schedule_work[2:-1])  # Verwijder 'PT' en de eenheid 'H'
+            total_cost = hours * hourly_rate
+            labor_costs.append((resource_time.id(), hours, hourly_rate, total_cost))
+
+    return labor_costs
+
+# Roep de functie aan om arbeidskosten te berekenen
+labor_costs = extract_resource_time(ifc_file)
+
+def extract_monetary_measures(ifc_file):
+    cost_items = ifc_file.by_type("IfcCostItem")
+    monetary_values = []
+
+    for cost_item in cost_items:
+        cost_name = cost_item.Name if hasattr(cost_item, 'Name') else "Onbekend"
+
+        if hasattr(cost_item, "CostValues") and cost_item.CostValues:
+            for cost_value in cost_item.CostValues:
+                if cost_value.is_a("IfcCostValue"):
+                    if cost_value.AppliedValue and cost_value.AppliedValue.is_a("IfcMonetaryMeasure"):
+                        monetary_measure = cost_value.AppliedValue.wrappedValue
+                        monetary_values.append((cost_name, monetary_measure))
+
+    return monetary_values
+
+# Roep de functie aan om de monetaire waarden en koppelingen te extraheren
+monetary_values = extract_monetary_measures(ifc_file)
+
+def generate_budget_report(ifc_file, labor_costs):
+    klant_info = {
+        'naam': 'Naam klant',
+        'omschrijving': 'Nieuwbouw woonboot straatnaam + plaatsnaam',
+    }
+    begroting_nummer = "12345"
+    datum = "2024-10-23"
+
+    # HTML-header
+    html_output = f"""
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Begroting</title>
+        <style>
+            body {{ font-family: 'Univia Pro', sans-serif; font-size: 11pt; }}
+            h1, h2 {{ font-size: 14pt; }}
+            table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+            th, td {{ border: 1px solid black; padding: 8px; text-align: left; }}
+            th {{ background-color: #f2f2f2; }}
+        </style>
+    </head>
+    <body>
+    <h1>Begroting voor Waterwoning</h1>
+    <p>Naam: {klant_info['naam']}<br/>
+    Omschrijving: {klant_info['omschrijving']}</p>
+    <p>Betreft: Begroting waterwoning<br/>
+    Datum: {datum}<br/>
+    Begroting nummer: {begroting_nummer}</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Hst/Par/Nr</th>
+                <th>Omschrijving</th>
+                <th>Aantal</th>
+                <th>Eenheid</th>
+                <th>Prijs</th>
+                <th>Subtotaal</th>
+                <th>Totaal</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    
+    # Cumulatieve variabele voor de totale bouwkosten
+    total_building_cost = 0
+
+    # Itereren over IfcCostItem elementen
+    for cost_item in ifc_file.by_type("IfcCostItem"):
+        identification = cost_item.Identification if hasattr(cost_item, 'Identification') else "Onbekend"
+        name = cost_item.Name if hasattr(cost_item, 'Name') else "Onbekend"
+
+        # Variabelen voor het berekenen van hoeveelheden
+        total_volume = 0
+        total_area = 0
+        total_length = 0
+        total_count = 0
+        unit = ""
+
+        # Verwerk hoeveelheden (IfcQuantityVolume, IfcQuantity Area, etc.)
+        if getattr(cost_item, "CostQuantities", None):
+            for quantity in cost_item.CostQuantities:
+                if quantity.is_a("IfcQuantityVolume"):
+                    total_volume += quantity.VolumeValue
+                    unit = "m³"
+                elif quantity.is_a("IfcQuantityArea"):
+                    total_area += quantity.AreaValue
+                    unit = "m²"
+                elif quantity.is_a("IfcQuantityLength"):
+                    total_length += quantity.LengthValue
+                    unit = "mm"
+                elif quantity.is_a("IfcQuantityCount"):
+                    total_count += quantity.CountValue
+                    unit = "stuks"
+
+        # Bouw de hoeveelheden-string op
+        quantities = ""
+        if total_volume > 0:
+            quantities += f"{total_volume:.2f}<br>"
+        if total_area > 0:
+            quantities += f"{total_area:.2f}<br>"
+        if total_length > 0:
+            quantities += f"{total_length:.2f}<br>"
+        if total_count > 0:
+            quantities += f"{total_count}<br>"
+
+        # Zoek naar gerelateerde IfcCostValue in CostValues
+        monetary_measure = ""
+        subtotal_price = 0
+        total_price = 0
+
+        if hasattr(cost_item, "CostValues") and cost_item.CostValues:
+            for cost_value in cost_item.CostValues:
+                if cost_value.is_a("IfcCostValue") and cost_value.AppliedValue and cost_value.AppliedValue.is_a("IfcMonetaryMeasure"):
+                    applied_value = cost_value.AppliedValue.wrappedValue
+                    
+                    # Formatteer de monetaire waarde met duizendtallen
+                    monetary_measure = f"€{locale.format_string('%.2f', applied_value, grouping=True)}"
+
+                    # Berekening van subtotaal en totaal met de hoeveelheden
+                    if total_volume > 0:
+                        subtotal_price += applied_value * total_volume
+                        total_price += applied_value * total_volume
+                    elif total_area > 0:
+                        subtotal_price += applied_value * total_area
+                        total_price += applied_value * total_area
+                    elif total_length > 0:
+                        subtotal_price += applied_value * total_length
+                        total_price += applied_value * total_length
+                    elif total_count > 0:
+                        subtotal_price += applied_value * total_count
+                        total_price += applied_value * total_count
+
+        # Voeg de gegevens van het CostItem toe aan de tabel
+        if subtotal_price == 0:
+            html_output += f"""
+                <tr>
+                    <td>{identification}</td>
+                    <td>{name}</td>
+                    <td>{quantities}</td>
+                    <td>{unit}</td>
+                    <td>{monetary_measure}</td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            """
+        else:
+            html_output += f"""
+                <tr>
+                    <td>{identification}</td>
+                    <td>{name}</td>
+                    <td>{quantities}</td>
+                    <td>{unit}</td>
+                    <td>{monetary_measure}</td>
+                    <td>€{locale.format_string('%.2f', subtotal_price, grouping=True)}</td>
+                    <td></td>
+                </tr>
+            """
+        # Voeg de prijs toe aan de totale bouwkosten
+        total_building_cost += total_price
+
+    # Voeg de arbeidskosten toe aan de totale bouwkosten
+    for labor_id, hours, hourly_rate, labor_cost in labor_costs:
+        html_output += f"""
+            <tr>
+                <td>{labor_id}</td>
+                <td> Arbeidskosten</td>
+                <td>{hours:.2f}</td>
+                <td>hr</td>
+                <td>€{hourly_rate:.2f}</td>
+                <td></td>
+                <td>€{locale.format_string('%.2f', labor_cost, grouping=True)}</td>
+            </tr>
+        """
+        total_building_cost += labor_cost
+
+    # Voeg de totale bouwkosten toe
+    html_output += f"""
+        <tr>
+            <td colspan="6" style="text-align: right; font-weight: bold;">Totale bouwkosten</td>
+            <td>€{locale.format_string('%.2f', total_building_cost, grouping=True)}</td>
+        </tr>
+    """
+
+    # Definieer de markups
+    sys.path.append(code_path)    
+    from opslagen import calculate_markups
+        
+    # Bereken opslagen via het externe script
+    markups, total_markup = calculate_markups(total_building_cost)
+
+    # Voeg opslagen toe aan de HTML-output
+    for markup in markups:
+        html_output += f"""
+            <tr>
+                <td colspan="6" style="text-align: right; font-weight: bold;">{markup["description"]} ({markup["percentage"]}%)</td>
+                <td>€{locale.format_string('%.2f', markup["value"], grouping=True)}</td>
+            </tr>
+        """
+
+    # Voeg totaal inclusief opslagen toe
+    total_including_markup = total_building_cost + total_markup
+    html_output += f"""
+        <tr>
+            <td colspan="6" style="text-align: right; font-weight: bold;">Totaal inclusief opslagen</td>
+            <td>€{locale.format_string('%.2f', total_including_markup, grouping=True)}</td>
+        </tr>
+    """
+
+    # Definieer het BTW-percentage
+    btw_percentage = 21 / 100  # 21%
+
+    # Bereken de BTW
+    btw_amount = total_including_markup * btw_percentage
+
+    # Voeg de BTW toe aan de HTML-output
+    html_output += f"""
+        <tr>
+            <td colspan="6" style="text-align: right; font-weight: bold;">BTW ({btw_percentage * 100:.0f}%)</td>
+            <td>€{locale.format_string('%.2f', btw_amount, grouping=True)}</td>
+        </tr>
+    """
+
+    # Voeg totaal inclusief opslagen en BTW toe
+    total_including_markup_and_btw = total_including_markup + btw_amount
+    html_output += f"""
+        <tr>
+            <td colspan="6" style="text-align: right; font-weight: bold;">Totaal inclusief opslagen en BTW</td>
+            <td>€{locale.format_string('%.2f', total_including_markup_and_btw, grouping=True)}</td>
+        </tr>
+    """
+
+    return html_output
+
+# Genereer het begrotingsrapport
+html_path = os.path.join(basepath, "begroting.html")
+budget_report = generate_budget_report(ifc_file, labor_costs)
+
+# Opslaan als HTML-bestand
+with open(html_path, "w", encoding="utf-8") as html_file:
+    html_file.write(budget_report)
+
+# HTML omzetten naar PDF
+wkhtmltopdf_path = "C:/Program Files/wkhtmltopdf/bin/wkhtmltopdf.exe"
+config = pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path)
+
+pdf_path = os.path.join(basepath, "begroting.pdf")
+pdfkit.from_file(html_path, pdf_path, configuration=config)
